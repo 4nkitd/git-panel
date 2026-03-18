@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ankityadav/zedgit/internal/git"
-	"github.com/ankityadav/zedgit/internal/ui/styles"
+	"github.com/4nkitd/git-panel/internal/git"
+	"github.com/4nkitd/git-panel/internal/ui/styles"
 	"github.com/charmbracelet/lipgloss"
 )
 

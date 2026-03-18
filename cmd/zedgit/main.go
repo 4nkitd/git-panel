@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/ankityadav/zedgit/internal/app"
+	"github.com/4nkitd/git-panel/internal/app"
 )
 
 var version = "dev"
@@ -18,7 +18,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("zedgit %s\n", version)
+		fmt.Printf("git-panel %s\n", version)
 		os.Exit(0)
 	}
 

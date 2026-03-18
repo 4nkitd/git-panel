@@ -6,11 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
-	"github.com/ankityadav/zedgit/internal/git"
+	"github.com/4nkitd/git-panel/internal/git"
 )
 
 // Ensure context import is used
@@ -59,7 +57,7 @@ type Model struct {
 	graphCollapsed    bool
 
 	// Commit input
-	commitInput textarea.Model
+	commitInput TextInput
 
 	// Diff view
 	currentDiff  *git.DiffResult
@@ -154,26 +152,7 @@ func New(path string) (Model, error) {
 		return Model{}, err
 	}
 
-	ti := textarea.New()
-	ti.Placeholder = "Commit message"
-	ti.CharLimit = 500
-	ti.SetWidth(60)
-	ti.SetHeight(1)
-	ti.ShowLineNumbers = false
-	// Strip all internal styling — we handle borders externally
-	ti.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ti.BlurredStyle.CursorLine = lipgloss.NewStyle()
-	ti.FocusedStyle.Base = lipgloss.NewStyle()
-	ti.BlurredStyle.Base = lipgloss.NewStyle()
-	ti.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555"))
-	ti.BlurredStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555"))
-	ti.FocusedStyle.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("#cccccc"))
-	ti.BlurredStyle.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("#cccccc"))
-	ti.FocusedStyle.Prompt = lipgloss.NewStyle()
-	ti.BlurredStyle.Prompt = lipgloss.NewStyle()
-	ti.Prompt = ""
-	ti.FocusedStyle.EndOfBuffer = lipgloss.NewStyle()
-	ti.BlurredStyle.EndOfBuffer = lipgloss.NewStyle()
+	ti := NewTextInput("Commit message")
 
 	m := Model{
 		repo:            repo,

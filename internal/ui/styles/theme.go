@@ -1,7 +1,7 @@
 package styles
 
 import (
-	"github.com/ankityadav/zedgit/internal/git"
+	"github.com/4nkitd/git-panel/internal/git"
 	"github.com/charmbracelet/lipgloss"
 )
 

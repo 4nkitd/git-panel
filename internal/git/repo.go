@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -139,6 +140,7 @@ func (r *Repo) Status() (*RepoStatus, error) {
 	}
 
 	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
 		if line == "" {
 			continue
 		}
@@ -175,7 +177,10 @@ func (r *Repo) Status() (*RepoStatus, error) {
 
 		case strings.HasPrefix(line, "? "):
 			// Untracked
-			path := strings.TrimPrefix(line, "? ")
+			path := strings.TrimSpace(strings.TrimPrefix(line, "? "))
+			if path == "" {
+				continue
+			}
 			status.Unstaged = append(status.Unstaged, StatusEntry{
 				Path:   path,
 				Status: StatusUntracked,
@@ -400,12 +405,21 @@ func (r *Repo) fileExists(relPath string) bool {
 }
 
 // runGit executes a git command in the given directory.
+// Stdout and stderr are captured separately so that stderr warnings
+// don't corrupt stdout-based parsing (e.g. status --porcelain).
 func runGit(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	if err != nil {
-		return "", fmt.Errorf("%s: %s", err, strings.TrimSpace(string(out)))
+		errOut := strings.TrimSpace(stderr.String())
+		if errOut == "" {
+			errOut = strings.TrimSpace(stdout.String())
+		}
+		return "", fmt.Errorf("%s: %s", err, errOut)
 	}
-	return string(out), nil
+	return stdout.String(), nil
 }

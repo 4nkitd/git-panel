@@ -1,4 +1,4 @@
-module github.com/ankityadav/zedgit
+module github.com/4nkitd/git-panel
 
 go 1.25.6
 

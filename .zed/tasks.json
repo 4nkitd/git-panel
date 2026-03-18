@@ -1,7 +1,7 @@
 [
   {
     "label": "Git Panel",
-    "command": "zedgit",
+    "command": "git-panel",
     "reveal": "always",
     "hide": "on_success"
   }

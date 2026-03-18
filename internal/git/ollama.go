@@ -27,7 +27,7 @@ func DefaultOllamaConfig() OllamaConfig {
 	}
 	model := os.Getenv("OLLAMA_MODEL")
 	if model == "" {
-		model = "llama3"
+		model = "gemma3:1b"
 	}
 	return OllamaConfig{Host: host, Model: model}
 }

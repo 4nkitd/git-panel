@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ankityadav/zedgit/internal/git"
-	"github.com/ankityadav/zedgit/internal/ui/components"
-	"github.com/ankityadav/zedgit/internal/ui/styles"
+	"github.com/4nkitd/git-panel/internal/git"
+	"github.com/4nkitd/git-panel/internal/ui/components"
+	"github.com/4nkitd/git-panel/internal/ui/styles"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -223,27 +223,48 @@ func (m Model) renderTitle() string {
 // ── Commit area ──
 
 func (m Model) renderCommitArea() string {
-	inner := m.width - 4 // margin + border
+	inner := m.width - 2 // border only, margin via MarginLeft
 
 	if m.mode == ModeCommit {
 		var s strings.Builder
 
-		// Text input with blue focus border
+		// Determine border color based on state
+		borderColor := styles.BorderFocus
+		if m.generating {
+			borderColor = styles.Magenta
+		}
+
+		// Text input or generating indicator
+		var inputContent string
+		if m.generating {
+			inputContent = styles.HelpDescStyle.Render("✦ Generating commit message...")
+		} else {
+			inputContent = m.commitInput.View(inner - 2) // -2 for padding
+		}
+
 		border := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(styles.BorderFocus).
+			BorderForeground(borderColor).
 			Width(inner).
-			Padding(0, 1)
-		s.WriteString(" " + border.Render(m.commitInput.View()))
+			Padding(0, 1).
+			MarginLeft(1)
+		s.WriteString(border.Render(inputContent))
 		s.WriteString("\n")
 
 		// Full-width commit button
-		s.WriteString(" " + lipgloss.NewStyle().
-			Foreground(styles.BrightWhite).
-			Background(styles.BgButton).
+		btnFg := styles.BrightWhite
+		btnBg := styles.BgButton
+		if m.generating {
+			btnFg = styles.DimWhite
+			btnBg = lipgloss.Color("#1a3a5c")
+		}
+		s.WriteString(lipgloss.NewStyle().
+			Foreground(btnFg).
+			Background(btnBg).
 			Bold(true).
 			Width(inner+2).
 			Align(lipgloss.Center).
+			MarginLeft(1).
 			Render("✓ Commit"))
 		s.WriteString("\n")
 
@@ -268,6 +289,7 @@ func (m Model) renderCommitArea() string {
 		Foreground(styles.Subtle).
 		Width(inner).
 		Padding(0, 1).
+		MarginLeft(1).
 		Render("Commit message  (c: type  g: AI generate)")
 
 	btn := lipgloss.NewStyle().
@@ -275,9 +297,10 @@ func (m Model) renderCommitArea() string {
 		Background(lipgloss.Color("#1a3a5c")).
 		Width(inner+2).
 		Align(lipgloss.Center).
+		MarginLeft(1).
 		Render("✓ Commit")
 
-	return " " + placeholder + "\n " + btn
+	return placeholder + "\n" + btn
 }
 
 // ── Staged Changes ──

@@ -3,7 +3,7 @@ package app
 import (
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/ankityadav/zedgit/internal/git"
+	"github.com/4nkitd/git-panel/internal/git"
 )
 
 // Update handles all messages and returns the updated model.
@@ -13,12 +13,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// textarea width = panel - margin(1) - border(2) - padding(2) = width - 7
-		inputW := m.width - 7
-		if inputW < 20 {
-			inputW = 20
-		}
-		m.commitInput.SetWidth(inputW)
 		m.diffMaxLines = m.height / 3
 		return m, nil
 
@@ -80,17 +74,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case generateChunkMsg:
 		m.generating = true
+		m.commitInput.Disabled = true
 		m.commitInput.SetValue(msg.partial)
 		return m, nil
 
 	case generateDoneMsg:
 		m.stopLoading()
 		m.generating = false
+		m.commitInput.Disabled = false
 		m.mode = ModeCommit
 		m.commitInput.SetValue(msg.message)
 		m.commitInput.Focus()
 		m.successMsg = "AI message generated"
-		return m, tea.Batch(m.commitInput.Focus(), m.clearMessage())
+		return m, m.clearMessage()
 
 	case gitOpDone:
 		m.stopLoading()
@@ -126,13 +122,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
-	}
-
-	// Pass through to textarea when in commit mode
-	if m.mode == ModeCommit {
-		var cmd tea.Cmd
-		m.commitInput, cmd = m.commitInput.Update(msg)
-		return m, cmd
 	}
 
 	return m, nil
@@ -182,26 +171,28 @@ func (m Model) handleMouseClick(x, y int, lm *LayoutMap) (Model, tea.Cmd) {
 		if m.mode != ModeCommit {
 			m.mode = ModeCommit
 			m.commitInput.Focus()
-			return m, m.commitInput.Focus()
 		}
 		return m, nil
 
 	case ZoneCommitButton:
-		// Click commit button
-		if m.mode == ModeCommit {
-			message := m.commitInput.Value()
-			if message == "" {
-				m.errMsg = "Commit message cannot be empty"
-				return m, m.clearMessage()
-			}
-			m.mode = ModeNormal
-			m.commitInput.Blur()
-			m.loading = true
-			return m, m.doGitOp(func() error {
-				return m.repo.Commit(message)
-			}, "Committed: "+truncateMsg(message, 30))
+		// Click commit button — works in both normal and commit mode
+		if m.mode != ModeCommit {
+			// If not in commit mode, enter it first
+			m.mode = ModeCommit
+			m.commitInput.Focus()
+			return m, nil
 		}
-		return m, nil
+		message := m.commitInput.Value
+		if message == "" {
+			m.errMsg = "Commit message cannot be empty"
+			return m, m.clearMessage()
+		}
+		m.mode = ModeNormal
+		m.commitInput.Blur()
+		spin := m.startLoading("Committing...")
+		return m, tea.Batch(spin, m.doGitOp(func() error {
+			return m.repo.Commit(message)
+		}, "Committed: "+truncateMsg(message, 30)))
 
 	case ZoneStagedHeader:
 		// Click on section header → toggle collapse
@@ -421,7 +412,7 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.mode = ModeCommit
 		m.commitInput.Focus()
-		return m, m.commitInput.Focus()
+		return m, nil
 
 	// Generate commit message with Ollama AI
 	case "g":
@@ -431,9 +422,10 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.generating = true
 		m.mode = ModeCommit
 		m.commitInput.SetValue("")
+		m.commitInput.Disabled = true
 		m.commitInput.Focus()
 		spin := m.startLoading("Generating commit message...")
-		return m, tea.Batch(spin, m.commitInput.Focus(), m.generateCommitMessage())
+		return m, tea.Batch(spin, m.generateCommitMessage())
 
 	// Diff
 	case "d":
@@ -509,14 +501,21 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleCommitKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Allow esc to cancel, block all other input during generation
+	if m.generating && msg.String() != "esc" {
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "esc":
 		m.mode = ModeNormal
 		m.commitInput.Blur()
+		m.generating = false
+		m.commitInput.Disabled = false
 		return m, nil
 
-	case "ctrl+enter":
-		message := m.commitInput.Value()
+	case "ctrl+enter", "enter":
+		message := m.commitInput.Value
 		if message == "" {
 			m.errMsg = "Commit message cannot be empty"
 			return m, m.clearMessage()
@@ -528,11 +527,12 @@ func (m Model) handleCommitKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(spin, m.doGitOp(func() error {
 			return m.repo.Commit(message)
 		}, "Committed: "+truncateMsg(message, 30)))
-	}
 
-	var cmd tea.Cmd
-	m.commitInput, cmd = m.commitInput.Update(msg)
-	return m, cmd
+	default:
+		// Pass all other keys to the text input
+		m.commitInput.Update(msg)
+		return m, nil
+	}
 }
 
 func (m Model) handleDiffKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
