@@ -1,0 +1,8 @@
+[
+  {
+    "label": "Git Panel",
+    "command": "zedgit",
+    "reveal": "always",
+    "hide": "on_success"
+  }
+]
