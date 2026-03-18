@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ankityadav/zedgit/internal/git"
 )
@@ -36,6 +37,7 @@ const (
 	ModeDiff
 	ModeBranch
 	ModeHelp
+	ModeSettings
 )
 
 // Model is the main application model for bubbletea.
@@ -80,14 +82,50 @@ type Model struct {
 	hoverCol int
 
 	// Ollama AI commit message generation
-	ollamaCfg    git.OllamaConfig
-	generating   bool // true while Ollama is generating
+	ollamaCfg  git.OllamaConfig
+	generating bool // true while Ollama is generating
+
+	// Settings
+	settingsCursor  int
+	availableModels []string
+	modelListLoaded bool
+
+	// Spinner / activity indicator
+	spinner      Spinner
+	loading      bool
+	loadingLabel string // what operation is running ("Pushing...", "Fetching...", etc.)
 
 	// Feedback
-	loading    bool
 	errMsg     string
 	successMsg string
 	msgExpiry  time.Time
+}
+
+// Spinner holds animated spinner state.
+type Spinner struct {
+	frame int
+	active bool
+}
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+var aiSpinnerFrames = []string{"✦ ", " ✦", "✦ ", " ✦", "✧✦", "✦✧", "✦ ", " ✦"}
+
+func (s *Spinner) Tick() {
+	s.frame = (s.frame + 1) % len(spinnerFrames)
+}
+
+func (s Spinner) View() string {
+	if !s.active {
+		return ""
+	}
+	return spinnerFrames[s.frame%len(spinnerFrames)]
+}
+
+func (s Spinner) AIView() string {
+	if !s.active {
+		return ""
+	}
+	return aiSpinnerFrames[s.frame%len(aiSpinnerFrames)]
 }
 
 // Messages
@@ -103,6 +141,8 @@ type commitFilesMsg struct {
 }
 type generateChunkMsg struct{ partial string }
 type generateDoneMsg struct{ message string }
+type ollamaModelsMsg struct{ models []string }
+type spinnerTickMsg struct{}
 type clearMsgTick struct{}
 type refreshTick struct{}
 type gitOpDone struct{ msg string }
@@ -115,11 +155,25 @@ func New(path string) (Model, error) {
 	}
 
 	ti := textarea.New()
-	ti.Placeholder = "Commit message..."
+	ti.Placeholder = "Commit message"
 	ti.CharLimit = 500
-	ti.SetWidth(40)
-	ti.SetHeight(3)
+	ti.SetWidth(60)
+	ti.SetHeight(1)
 	ti.ShowLineNumbers = false
+	// Strip all internal styling — we handle borders externally
+	ti.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ti.BlurredStyle.CursorLine = lipgloss.NewStyle()
+	ti.FocusedStyle.Base = lipgloss.NewStyle()
+	ti.BlurredStyle.Base = lipgloss.NewStyle()
+	ti.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555"))
+	ti.BlurredStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555"))
+	ti.FocusedStyle.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("#cccccc"))
+	ti.BlurredStyle.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("#cccccc"))
+	ti.FocusedStyle.Prompt = lipgloss.NewStyle()
+	ti.BlurredStyle.Prompt = lipgloss.NewStyle()
+	ti.Prompt = ""
+	ti.FocusedStyle.EndOfBuffer = lipgloss.NewStyle()
+	ti.BlurredStyle.EndOfBuffer = lipgloss.NewStyle()
 
 	m := Model{
 		repo:            repo,
@@ -137,12 +191,13 @@ func New(path string) (Model, error) {
 	return m, nil
 }
 
-// Init initializes the model and starts the first status refresh.
+// Init initializes the model and starts the first status refresh + file watcher.
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.refreshStatus(),
 		m.refreshLog(),
 		m.tickRefresh(),
+		watchRepo(m.repo.Path), // real-time filesystem watcher
 	)
 }
 
@@ -167,7 +222,8 @@ func (m Model) refreshLog() tea.Cmd {
 }
 
 func (m Model) tickRefresh() tea.Cmd {
-	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+	// Polling fallback — fsnotify handles real-time, this catches edge cases
+	return tea.Tick(10*time.Second, func(t time.Time) tea.Msg {
 		return refreshTick{}
 	})
 }
@@ -176,6 +232,27 @@ func (m Model) clearMessage() tea.Cmd {
 	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
 		return clearMsgTick{}
 	})
+}
+
+func spinnerTick() tea.Cmd {
+	return tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg {
+		return spinnerTickMsg{}
+	})
+}
+
+// startLoading sets the loading state and starts the spinner.
+func (m *Model) startLoading(label string) tea.Cmd {
+	m.loading = true
+	m.loadingLabel = label
+	m.spinner.active = true
+	m.spinner.frame = 0
+	return spinnerTick()
+}
+
+func (m *Model) stopLoading() {
+	m.loading = false
+	m.loadingLabel = ""
+	m.spinner.active = false
 }
 
 func (m Model) loadDiff(path string, staged bool) tea.Cmd {

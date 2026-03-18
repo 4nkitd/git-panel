@@ -92,8 +92,9 @@ func (r *Repo) Log(maxCount int) (*LogResult, error) {
 }
 
 // CommitFiles returns the files changed in a specific commit.
+// Uses --root to handle the initial commit (no parent).
 func (r *Repo) CommitFiles(hash string) ([]CommitFile, error) {
-	out, err := runGit(r.Path, "diff-tree", "--no-commit-id", "-r", "--name-status", hash)
+	out, err := runGit(r.Path, "diff-tree", "--root", "--no-commit-id", "-r", "--name-status", hash)
 	if err != nil {
 		return nil, err
 	}

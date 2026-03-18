@@ -153,17 +153,14 @@ func (r *Repo) Status() (*RepoStatus, error) {
 			}
 
 		case strings.HasPrefix(line, "1 ") || strings.HasPrefix(line, "2 "):
-			// Changed entry
-			entry := parseStatusEntry(line)
-			if entry != nil {
-				if entry.IsStaged {
-					status.Staged = append(status.Staged, *entry)
-				}
-				// Check unstaged portion
-				unstagedEntry := parseUnstagedEntry(line)
-				if unstagedEntry != nil {
-					status.Unstaged = append(status.Unstaged, *unstagedEntry)
-				}
+			// Changed entry — check staged and unstaged independently
+			stagedEntry := parseStatusEntry(line)
+			if stagedEntry != nil {
+				status.Staged = append(status.Staged, *stagedEntry)
+			}
+			unstagedEntry := parseUnstagedEntry(line)
+			if unstagedEntry != nil {
+				status.Unstaged = append(status.Unstaged, *unstagedEntry)
 			}
 
 		case strings.HasPrefix(line, "u "):
@@ -237,8 +234,10 @@ func (r *Repo) StageAll() error {
 }
 
 // Unstage removes files from the staging area.
+// Uses "git reset HEAD" which works for both tracked and newly added files,
+// unlike "git restore --staged" which can fail on new files in some git versions.
 func (r *Repo) Unstage(paths ...string) error {
-	args := append([]string{"restore", "--staged", "--"}, paths...)
+	args := append([]string{"reset", "HEAD", "--"}, paths...)
 	_, err := runGit(r.Path, args...)
 	return err
 }

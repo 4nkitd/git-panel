@@ -5,7 +5,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Colors matching VS Code's Source Control panel.
+// Colors — VS Code dark theme palette.
 var (
 	Green       = lipgloss.Color("#73c991")
 	Yellow      = lipgloss.Color("#cca700")
@@ -18,64 +18,95 @@ var (
 	White       = lipgloss.Color("#cccccc")
 	BrightWhite = lipgloss.Color("#ffffff")
 	DimWhite    = lipgloss.Color("#969696")
+	Subtle      = lipgloss.Color("#555555")
 	BgSelected  = lipgloss.Color("#04395e")
 	BgHover     = lipgloss.Color("#2a2d2e")
-	BgHeader    = lipgloss.Color("#252526")
+	BgHeader    = lipgloss.Color("#1e1e1e")
+	BgPanel     = lipgloss.Color("#181818")
 	BgDiffAdd   = lipgloss.Color("#1e3a21")
 	BgDiffDel   = lipgloss.Color("#3a1e1e")
-	BgInput     = lipgloss.Color("#3c3c3c")
+	BgInput     = lipgloss.Color("#313131")
 	BgButton    = lipgloss.Color("#0e639c")
-	Border      = lipgloss.Color("#404040")
+	BgGenBtn    = lipgloss.Color("#6c3483")
+	Border      = lipgloss.Color("#333333")
+	BorderFocus = lipgloss.Color("#007acc")
 )
 
-// Graph branch colors (VS Code uses these for commit graph lines).
+// Graph branch colors.
 var GraphColors = []lipgloss.Color{
-	lipgloss.Color("#4fc1ff"), // blue
-	lipgloss.Color("#e5c07b"), // yellow/gold
-	lipgloss.Color("#c678dd"), // magenta/purple
-	lipgloss.Color("#98c379"), // green
-	lipgloss.Color("#e06c75"), // red/pink
-	lipgloss.Color("#56b6c2"), // cyan
-	lipgloss.Color("#d19a66"), // orange
+	lipgloss.Color("#4fc1ff"),
+	lipgloss.Color("#e5c07b"),
+	lipgloss.Color("#c678dd"),
+	lipgloss.Color("#98c379"),
+	lipgloss.Color("#e06c75"),
+	lipgloss.Color("#56b6c2"),
+	lipgloss.Color("#d19a66"),
 }
 
-// Component styles.
+// ── Component styles ──
+
 var (
+	// Title bar
 	TitleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(BrightWhite).
+			Foreground(DimWhite).
 			Padding(0, 1)
 
+	TitleTextStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(BrightWhite)
+
+	// Section headers
 	SectionHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(White)
 
 	SectionCountStyle = lipgloss.NewStyle().
-				Foreground(DimWhite)
+				Foreground(DimWhite).
+				Italic(true)
 
+	SectionSepStyle = lipgloss.NewStyle().
+			Foreground(Subtle)
+
+	// Selection / hover
 	SelectedStyle = lipgloss.NewStyle().
 			Background(BgSelected)
 
 	HoverStyle = lipgloss.NewStyle().
 			Background(BgHover)
 
-	FilePathStyle = lipgloss.NewStyle().
+	// File display
+	FileNameStyle = lipgloss.NewStyle().
 			Foreground(White)
 
 	FileDirStyle = lipgloss.NewStyle().
 			Foreground(DimWhite)
 
+	FilePathStyle = lipgloss.NewStyle().
+			Foreground(White)
+
+	// Status bar
 	StatusBarStyle = lipgloss.NewStyle().
 			Foreground(DimWhite).
 			Background(BgHeader)
+
+	StatusBarSepStyle = lipgloss.NewStyle().
+				Foreground(Subtle).
+				Background(BgHeader)
 
 	BranchStyle = lipgloss.NewStyle().
 			Foreground(Cyan).
 			Bold(true)
 
+	// Commit input
 	CommitInputStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(Border).
+				Padding(0, 1)
+
+	CommitInputFocusStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(BorderFocus).
 				Padding(0, 1)
 
 	CommitButtonStyle = lipgloss.NewStyle().
@@ -85,11 +116,17 @@ var (
 				Padding(0, 2)
 
 	CommitSecondaryStyle = lipgloss.NewStyle().
-				Foreground(White).
-				Background(BgHeader).
+				Foreground(DimWhite).
+				Background(BgHover).
 				Padding(0, 1)
 
-	// Per-file action icon styles (VS Code hover icons)
+	GenerateButtonStyle = lipgloss.NewStyle().
+				Foreground(BrightWhite).
+				Background(BgGenBtn).
+				Bold(true).
+				Padding(0, 1)
+
+	// Per-file action icons
 	StageIconStyle = lipgloss.NewStyle().
 			Foreground(Green).
 			Bold(true)
@@ -101,6 +138,7 @@ var (
 	DiscardIconStyle = lipgloss.NewStyle().
 				Foreground(Red)
 
+	// Diff
 	DiffAddStyle = lipgloss.NewStyle().
 			Foreground(Green).
 			Background(BgDiffAdd)
@@ -112,6 +150,11 @@ var (
 	DiffHunkStyle = lipgloss.NewStyle().
 			Foreground(Cyan)
 
+	DiffBorderStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(Border)
+
+	// Help
 	HelpKeyStyle = lipgloss.NewStyle().
 			Foreground(Blue).
 			Bold(true)
@@ -119,6 +162,13 @@ var (
 	HelpDescStyle = lipgloss.NewStyle().
 			Foreground(DimWhite)
 
+	HelpBarStyle = lipgloss.NewStyle().
+			Foreground(Subtle)
+
+	HelpBarKeyStyle = lipgloss.NewStyle().
+			Foreground(DimWhite)
+
+	// Feedback
 	ErrorStyle = lipgloss.NewStyle().
 			Foreground(Red).
 			Bold(true)
@@ -129,7 +179,7 @@ var (
 	SpinnerStyle = lipgloss.NewStyle().
 			Foreground(Blue)
 
-	// Commit graph styles
+	// Graph
 	GraphCommitStyle = lipgloss.NewStyle().
 				Foreground(White)
 
@@ -140,7 +190,7 @@ var (
 				Foreground(Blue)
 
 	GraphDateStyle = lipgloss.NewStyle().
-			Foreground(DimWhite)
+			Foreground(Subtle)
 
 	GraphTagStyle = lipgloss.NewStyle().
 			Foreground(Yellow).
@@ -155,7 +205,7 @@ var (
 				Bold(true)
 )
 
-// StatusStyle returns the style for a given file status.
+// StatusStyle returns the colored style for a git file status.
 func StatusStyle(status git.FileStatus) lipgloss.Style {
 	switch status {
 	case git.StatusAdded:

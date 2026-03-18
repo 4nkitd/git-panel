@@ -20,7 +20,8 @@ var Bindings = []KeyBinding{
 	{"A", "Unstage all"},
 	{"d", "Show diff"},
 	{"c", "Start commit"},
-	{"Enter", "Confirm commit (in commit mode)"},
+	{"g", "Generate commit msg (Ollama AI)"},
+	{"Ctrl+Enter", "Confirm commit"},
 	{"Esc", "Cancel / close"},
 	{"b", "Branch picker"},
 	{"p", "Push"},
@@ -74,8 +75,84 @@ func RenderHelp(width, height int) string {
 		box.Render(content))
 }
 
-// RenderHelpBar renders the compact help bar at the bottom.
-func RenderHelpBar(width int) string {
-	hints := []string{"j/k:nav", "Enter:stage", "c:commit", "d:diff", "?:help", "q:quit"}
-	return styles.HelpDescStyle.Render(" " + strings.Join(hints, " │ "))
+// HelpContext provides current UI state for context-aware help bar.
+type HelpContext struct {
+	Mode       string // "normal", "commit", "diff", "branch", "help"
+	Section    string // "staged", "unstaged", "stashes", "graph"
+	HasStaged  bool
+	HasChanges bool
+	Generating bool
+}
+
+// RenderHelpBar renders a context-aware shortcut bar at the bottom.
+func RenderHelpBar(width int, ctx HelpContext) string {
+	var hints []string
+
+	switch ctx.Mode {
+	case "commit":
+		hints = []string{"Ctrl+Enter:commit", "Esc:cancel"}
+		if !ctx.Generating {
+			hints = append(hints, "g:AI generate")
+		} else {
+			hints = append(hints, "✦ generating...")
+		}
+
+	case "diff":
+		hints = []string{"j/k:scroll", "Esc:close", "d:close"}
+
+	case "branch":
+		hints = []string{"j/k:navigate", "Enter:checkout", "Esc:cancel"}
+
+	case "help":
+		hints = []string{"Esc:close", "?:close"}
+
+	case "settings":
+		hints = []string{"j/k:navigate", "Enter:select model", "r:refresh", "Esc:close"}
+
+	default: // normal mode
+		hints = []string{"j/k:nav", "Tab:section"}
+
+		switch ctx.Section {
+		case "staged":
+			hints = append(hints, "Enter:unstage", "A:unstage all", "d:diff")
+		case "unstaged":
+			hints = append(hints, "Enter:stage", "a:stage all", "d:diff")
+		case "stashes":
+			hints = append(hints, "s:stash", "S:pop")
+		case "graph":
+			hints = append(hints, "Enter:expand", "scroll:↑↓")
+		}
+
+		// Common actions available in normal mode
+		if ctx.HasStaged {
+			hints = append(hints, "c:commit", "g:AI gen")
+		} else if ctx.HasChanges {
+			hints = append(hints, "a:stage all", "g:AI gen")
+		}
+
+		hints = append(hints, "b:branch", "p:push", ",:settings", "?:help")
+	}
+
+	// Render each hint with key highlighted
+	var rendered []string
+	for _, h := range hints {
+		parts := strings.SplitN(h, ":", 2)
+		if len(parts) == 2 {
+			rendered = append(rendered,
+				styles.HelpBarKeyStyle.Render(parts[0])+
+					styles.HelpBarStyle.Render(":"+parts[1]))
+		} else {
+			rendered = append(rendered, styles.HelpBarStyle.Render(h))
+		}
+	}
+
+	sep := styles.HelpBarStyle.Render(" · ")
+	bar := " " + strings.Join(rendered, sep)
+
+	// Truncate if too wide
+	if lipgloss.Width(bar) > width {
+		bar = bar[:width-1]
+	}
+
+	return bar
 }

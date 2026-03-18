@@ -17,32 +17,52 @@ func (m Model) View() string {
 		return "Loading..."
 	}
 
-	// Help overlay
 	if m.mode == ModeHelp {
 		return components.RenderHelp(m.width, m.height)
 	}
-
-	// Branch picker overlay
 	if m.mode == ModeBranch {
 		return m.renderBranchPicker()
 	}
+	if m.mode == ModeSettings {
+		return m.renderSettings()
+	}
 
-	lm := NewLayoutMap(m.height)
+	lm := NewLayoutMap(m.height + 100)
+
+	// Bottom-fixed bars (separator + help + status = 3 lines)
+	helpBar := components.RenderHelpBar(m.width, m.helpContext())
+	statusBar := m.renderStatusBar()
+	bottomFixed := 3
+
+	// Graph (bottom-sticky)
+	var graphLines []string
+	hasGraph := m.logResult != nil && len(m.logResult.Commits) > 0
+	if hasGraph {
+		graphLines = m.renderGraphSectionLines()
+	}
+
+	upperAvailable := m.height - bottomFixed - len(graphLines)
+	if upperAvailable < 5 {
+		upperAvailable = 5
+	}
+
 	row := 0
-
 	var lines []string
 
 	// ── Title bar ──
-	titleLine := m.renderTitle()
-	lines = append(lines, titleLine)
+	lines = append(lines, m.renderTitle())
 	lm.Set(row, ZoneTitle, -1)
 	row++
 
-	// ── Commit input area ──
-	commitLines := m.renderCommitArea()
-	for _, cl := range strings.Split(commitLines, "\n") {
+	// ── Separator ──
+	lines = append(lines, thinSep(m.width))
+	row++
+
+	// ── Commit area ──
+	commitStr := m.renderCommitArea()
+	for _, cl := range strings.Split(commitStr, "\n") {
 		lines = append(lines, cl)
-		if strings.Contains(cl, "Commit") || strings.Contains(cl, "✓ Commit") {
+		if strings.Contains(cl, "Commit") || strings.Contains(cl, "Generate") || strings.Contains(cl, "Amend") {
 			lm.Set(row, ZoneCommitButton, -1)
 		} else {
 			lm.Set(row, ZoneCommitInput, -1)
@@ -50,23 +70,32 @@ func (m Model) View() string {
 		row++
 	}
 
-	// ── Staged Changes section ──
-	stagedLines := m.renderStagedSection(lm, &row)
-	lines = append(lines, stagedLines...)
+	// ── Separator ──
+	lines = append(lines, thinSep(m.width))
+	row++
 
-	// ── Unstaged Changes section ──
-	unstagedLines := m.renderUnstagedSection(lm, &row)
-	lines = append(lines, unstagedLines...)
+	// ── Staged Changes ──
+	for _, l := range m.renderStagedSection(lm, &row) {
+		lines = append(lines, l)
+	}
 
-	// ── Stash section ──
-	stashLines := m.renderStashSection(lm, &row)
-	lines = append(lines, stashLines...)
+	// ── Changes ──
+	for _, l := range m.renderUnstagedSection(lm, &row) {
+		lines = append(lines, l)
+	}
+
+	// ── Stashes (only if there are any) ──
+	if m.status != nil && len(m.status.Stashes) > 0 {
+		for _, l := range m.renderStashSection(lm, &row) {
+			lines = append(lines, l)
+		}
+	}
 
 	// ── Diff view ──
 	if m.mode == ModeDiff && m.currentDiff != nil {
-		lines = append(lines, "")
-		lm.Set(row, ZoneDiff, -1)
+		lines = append(lines, thinSep(m.width))
 		row++
+		lm.Set(row, ZoneDiff, -1)
 		diffStr := components.RenderDiff(m.currentDiff, m.width, m.diffScroll, m.diffMaxLines)
 		for _, dl := range strings.Split(diffStr, "\n") {
 			lines = append(lines, dl)
@@ -75,111 +104,210 @@ func (m Model) View() string {
 		}
 	}
 
-	// Join content
-	content := strings.Join(lines, "\n")
-
-	// Pad to push status bar to bottom
-	contentHeight := row
-	helpBar := components.RenderHelpBar(m.width)
-	statusBar := m.renderStatusBar()
-
-	paddingNeeded := m.height - contentHeight - 2
-	if paddingNeeded > 0 {
-		content += strings.Repeat("\n", paddingNeeded)
-		row += paddingNeeded
+	// ── Clean repo message ──
+	if m.status != nil && len(m.status.Staged) == 0 && len(m.status.Unstaged) == 0 && m.mode != ModeDiff {
+		lines = append(lines, "")
+		row++
+		emptyMsg := styles.HelpDescStyle.Render("  No pending changes")
+		lines = append(lines, emptyMsg)
+		row++
 	}
 
-	lm.Set(m.height-2, ZoneHelpBar, -1)
-	lm.Set(m.height-1, ZoneStatusBar, -1)
+	// ── Pad to push graph to bottom ──
+	content := strings.Join(lines, "\n")
+	pad := upperAvailable - row
+	if pad > 0 {
+		content += strings.Repeat("\n", pad)
+		row += pad
+	}
 
-	content += "\n" + helpBar + "\n" + statusBar
+	// ── Graph (bottom-sticky separator + section) ──
+	if hasGraph {
+		content += "\n" + thinSep(m.width)
+		row++
+		for _, gl := range graphLines {
+			content += "\n" + gl
+			row++
+		}
+		graphStart := row - len(graphLines)
+		m.mapGraphLayout(lm, graphStart, graphLines)
+	}
 
-	// Store layout map (we return a new model from View via pointer trick)
-	// Since View is called on value receiver, we store it via the pointer in the map
-	// Actually, we store it in the model during Update via a post-render message.
-	// For simplicity, we use a package-level var (safe because TUI is single-threaded).
+	// ── Footer: separator + help bar + status bar ──
+	content += "\n" + thinSep(m.width) + "\n" + helpBar + "\n" + statusBar
+
 	lastLayout = lm
-
 	return content
 }
 
-// lastLayout is the most recently built layout map. Safe because bubbletea is single-threaded.
 var lastLayout *LayoutMap
 
+// ── Layout map for graph ──
+
+func (m Model) mapGraphLayout(lm *LayoutMap, startRow int, graphLines []string) {
+	if m.logResult == nil || len(graphLines) == 0 {
+		return
+	}
+
+	row := startRow
+	maxRow := startRow + len(graphLines)
+
+	lm.Set(row, ZoneGraphHeader, -1)
+	row++
+
+	if m.graphCollapsed {
+		return
+	}
+
+	maxVisible := m.graphMaxVisible
+	if maxVisible > m.height*40/100 {
+		maxVisible = m.height * 40 / 100
+	}
+	if maxVisible < 5 {
+		maxVisible = 5
+	}
+
+	visibleStart := m.graphScroll
+	visibleEnd := visibleStart + maxVisible
+	if visibleEnd > len(m.logResult.Commits) {
+		visibleEnd = len(m.logResult.Commits)
+	}
+
+	for i := visibleStart; i < visibleEnd && row < maxRow; i++ {
+		lm.Set(row, ZoneGraphCommit, i)
+		row++
+		commit := m.logResult.Commits[i]
+		if commit.Expanded {
+			for range commit.Files {
+				if row < maxRow {
+					lm.Set(row, ZoneGraphFile, i)
+					row++
+				}
+			}
+		}
+	}
+	if row < maxRow {
+		lm.Set(row, ZoneNone, -1)
+	}
+}
+
+// ── Title bar ──
+
 func (m Model) renderTitle() string {
-	title := styles.TitleStyle.Render("SOURCE CONTROL")
+	icon := styles.TitleStyle.Render("")
+	title := styles.TitleTextStyle.Render("Source Control")
+	left := icon + " " + title
 
-	var rightParts []string
-	if m.loading {
-		rightParts = append(rightParts, styles.SpinnerStyle.Render("⟳"))
+	var right string
+	if m.spinner.active {
+		if m.generating {
+			right = styles.SpinnerStyle.Render(m.spinner.AIView()) + " " +
+				styles.HelpDescStyle.Render(m.loadingLabel)
+		} else {
+			right = styles.SpinnerStyle.Render(m.spinner.View()) + " " +
+				styles.HelpDescStyle.Render(m.loadingLabel)
+		}
+	} else if m.successMsg != "" {
+		right = styles.SuccessStyle.Render("✓ " + m.successMsg)
+	} else if m.errMsg != "" {
+		right = styles.ErrorStyle.Render("✗ " + m.errMsg)
 	}
-	if m.successMsg != "" {
-		rightParts = append(rightParts, styles.SuccessStyle.Render("✓ "+m.successMsg))
-	}
-	right := strings.Join(rightParts, " ")
 
-	gap := m.width - lipgloss.Width(title) - lipgloss.Width(right)
+	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 1
 	if gap < 0 {
 		gap = 0
 	}
-
-	return title + strings.Repeat(" ", gap) + right
+	return left + strings.Repeat(" ", gap) + right
 }
+
+// ── Commit area ──
 
 func (m Model) renderCommitArea() string {
-	var s strings.Builder
+	inner := m.width - 4 // margin + border
 
 	if m.mode == ModeCommit {
-		s.WriteString(styles.CommitInputStyle.Width(m.width - 2).Render(m.commitInput.View()))
+		var s strings.Builder
+
+		// Text input with blue focus border
+		border := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(styles.BorderFocus).
+			Width(inner).
+			Padding(0, 1)
+		s.WriteString(" " + border.Render(m.commitInput.View()))
 		s.WriteString("\n")
 
-		// Commit button row (clickable)
-		btn := styles.CommitButtonStyle.Render(" ✓ Commit ")
-		amendBtn := styles.CommitSecondaryStyle.Render(" Amend ")
-		cancelHint := styles.HelpDescStyle.Render(" Esc: cancel")
-		s.WriteString(" " + btn + " " + amendBtn + cancelHint)
-	} else {
-		placeholder := styles.CommitInputStyle.
-			Width(m.width - 2).
-			Foreground(styles.DimWhite).
-			Render("Press 'c' to commit...")
-		s.WriteString(placeholder)
+		// Full-width commit button
+		s.WriteString(" " + lipgloss.NewStyle().
+			Foreground(styles.BrightWhite).
+			Background(styles.BgButton).
+			Bold(true).
+			Width(inner+2).
+			Align(lipgloss.Center).
+			Render("✓ Commit"))
+		s.WriteString("\n")
+
+		// Action row: Generate + Amend + hint
+		var parts []string
+		if m.generating {
+			parts = append(parts, styles.SpinnerStyle.Render(m.spinner.AIView()+" Generating..."))
+		} else {
+			parts = append(parts, styles.GenerateButtonStyle.Render("✦ Generate"))
+		}
+		parts = append(parts, styles.CommitSecondaryStyle.Render("Amend"))
+		parts = append(parts, styles.HelpDescStyle.Render("esc:cancel"))
+		s.WriteString(" " + strings.Join(parts, "  "))
+
+		return s.String()
 	}
 
-	return s.String()
+	// ── Inactive: styled placeholder input + muted commit button ──
+	placeholder := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(styles.Border).
+		Foreground(styles.Subtle).
+		Width(inner).
+		Padding(0, 1).
+		Render("Commit message  (c: type  g: AI generate)")
+
+	btn := lipgloss.NewStyle().
+		Foreground(styles.DimWhite).
+		Background(lipgloss.Color("#1a3a5c")).
+		Width(inner+2).
+		Align(lipgloss.Center).
+		Render("✓ Commit")
+
+	return " " + placeholder + "\n " + btn
 }
+
+// ── Staged Changes ──
 
 func (m Model) renderStagedSection(lm *LayoutMap, row *int) []string {
 	var lines []string
-
 	count := 0
 	if m.status != nil {
 		count = len(m.status.Staged)
 	}
 
-	// Section header with action icons
-	actionIcons := ""
+	focused := m.focus == SectionStaged
+	actions := ""
 	if count > 0 {
-		actionIcons = styles.UnstageIconStyle.Render(" − ") + " " + styles.DiscardIconStyle.Render(" ↺ ")
+		actions = styles.UnstageIconStyle.Render("−") + "  " + styles.DiscardIconStyle.Render("↺")
 	}
-	header := renderSectionHeaderWithActions(
-		"Staged Changes", count, m.stagedCollapsed, m.width,
-		actionIcons, m.focus == SectionStaged)
-	lines = append(lines, header)
+	lines = append(lines, renderSectionHeader("Staged Changes", count, m.stagedCollapsed, m.width, actions, focused))
 	lm.Set(*row, ZoneStagedHeader, -1)
 	*row++
 
 	if !m.stagedCollapsed && m.status != nil {
 		for i, entry := range m.status.Staged {
-			hovered := m.isRowHovered(*row)
-			line := renderFileLineWithActions(entry, m.width, i == m.cursor && m.focus == SectionStaged, hovered, true)
-			lines = append(lines, line)
-			// Action icons start near right edge
+			hovered := m.hoverRow == *row
+			sel := i == m.cursor && focused
+			lines = append(lines, renderFileLine(entry, m.width, sel, hovered, true))
 			lm.SetWithAction(*row, ZoneStagedFile, i, m.width-10)
 			*row++
 		}
-		if len(m.status.Staged) == 0 {
-			lines = append(lines, styles.HelpDescStyle.Render("  No staged changes"))
+		if count == 0 {
+			lines = append(lines, dim("  No staged changes", m.width))
 			lm.Set(*row, ZoneNone, -1)
 			*row++
 		}
@@ -188,35 +316,34 @@ func (m Model) renderStagedSection(lm *LayoutMap, row *int) []string {
 	return lines
 }
 
+// ── Changes ──
+
 func (m Model) renderUnstagedSection(lm *LayoutMap, row *int) []string {
 	var lines []string
-
 	count := 0
 	if m.status != nil {
 		count = len(m.status.Unstaged)
 	}
 
-	actionIcons := ""
+	focused := m.focus == SectionUnstaged
+	actions := ""
 	if count > 0 {
-		actionIcons = styles.StageIconStyle.Render(" + ") + " " + styles.DiscardIconStyle.Render(" ↺ ")
+		actions = styles.StageIconStyle.Render("+") + "  " + styles.DiscardIconStyle.Render("↺")
 	}
-	header := renderSectionHeaderWithActions(
-		"Changes", count, m.unstagedCollapsed, m.width,
-		actionIcons, m.focus == SectionUnstaged)
-	lines = append(lines, header)
+	lines = append(lines, renderSectionHeader("Changes", count, m.unstagedCollapsed, m.width, actions, focused))
 	lm.Set(*row, ZoneUnstagedHeader, -1)
 	*row++
 
 	if !m.unstagedCollapsed && m.status != nil {
 		for i, entry := range m.status.Unstaged {
-			hovered := m.isRowHovered(*row)
-			line := renderFileLineWithActions(entry, m.width, i == m.cursor && m.focus == SectionUnstaged, hovered, false)
-			lines = append(lines, line)
+			hovered := m.hoverRow == *row
+			sel := i == m.cursor && focused
+			lines = append(lines, renderFileLine(entry, m.width, sel, hovered, false))
 			lm.SetWithAction(*row, ZoneUnstagedFile, i, m.width-10)
 			*row++
 		}
-		if len(m.status.Unstaged) == 0 {
-			lines = append(lines, styles.HelpDescStyle.Render("  No changes"))
+		if count == 0 {
+			lines = append(lines, dim("  No changes", m.width))
 			lm.Set(*row, ZoneNone, -1)
 			*row++
 		}
@@ -225,26 +352,25 @@ func (m Model) renderUnstagedSection(lm *LayoutMap, row *int) []string {
 	return lines
 }
 
+// ── Stashes ──
+
 func (m Model) renderStashSection(lm *LayoutMap, row *int) []string {
 	var lines []string
-
 	count := 0
 	if m.status != nil {
 		count = len(m.status.Stashes)
 	}
 
-	header := renderSectionHeaderWithActions(
-		"Stashes", count, m.stashCollapsed, m.width,
-		"", m.focus == SectionStashes)
-	lines = append(lines, header)
+	focused := m.focus == SectionStashes
+	lines = append(lines, renderSectionHeader("Stashes", count, m.stashCollapsed, m.width, "", focused))
 	lm.Set(*row, ZoneStashHeader, -1)
 	*row++
 
 	if !m.stashCollapsed && m.status != nil {
 		for i, stash := range m.status.Stashes {
 			line := fmt.Sprintf("  stash@{%d}: %s", stash.Index, stash.Message)
-			if m.focus == SectionStashes && i == m.cursor {
-				line = padToWidth(line, m.width)
+			if focused && i == m.cursor {
+				line = padW(line, m.width)
 				line = styles.SelectedStyle.Render(line)
 			} else {
 				line = styles.HelpDescStyle.Render(line)
@@ -258,33 +384,172 @@ func (m Model) renderStashSection(lm *LayoutMap, row *int) []string {
 	return lines
 }
 
+// ── Graph (bottom-sticky) ──
+
+func (m Model) renderGraphSectionLines() []string {
+	var lines []string
+
+	header := components.RenderGraphSection(m.graphCollapsed, m.width, m.focus == SectionGraph)
+	lines = append(lines, header)
+
+	if m.graphCollapsed || m.logResult == nil || len(m.logResult.Commits) == 0 {
+		return lines
+	}
+
+	maxVis := m.graphMaxVisible
+	if maxVis > m.height*40/100 {
+		maxVis = m.height * 40 / 100
+	}
+	if maxVis < 5 {
+		maxVis = 5
+	}
+
+	start := m.graphScroll
+	end := start + maxVis
+	if end > len(m.logResult.Commits) {
+		end = len(m.logResult.Commits)
+	}
+
+	headBranch := ""
+	if m.status != nil {
+		headBranch = m.status.Branch.Name
+	}
+
+	for i := start; i < end; i++ {
+		c := m.logResult.Commits[i]
+		sel := m.focus == SectionGraph && i == m.graphCursor
+
+		isHead := false
+		for _, ref := range c.Refs {
+			if strings.Contains(ref, "HEAD") || ref == headBranch {
+				isHead = true
+				break
+			}
+		}
+
+		lines = append(lines, components.RenderCommitLine(c, m.width, sel, false, isHead))
+		if c.Expanded && len(c.Files) > 0 {
+			lines = append(lines, components.RenderCommitFiles(c.Files, c.BranchIdx, m.width)...)
+		}
+	}
+
+	if end < len(m.logResult.Commits) {
+		n := len(m.logResult.Commits) - end
+		lines = append(lines, styles.HelpDescStyle.Render(fmt.Sprintf("  ... %d more commits", n)))
+	}
+
+	return lines
+}
+
+// ── Status bar ──
+
 func (m Model) renderStatusBar() string {
 	branch := m.getBranch()
-	return components.RenderStatusBar(branch, m.loading, m.errMsg, m.width)
+	staged, unstaged := 0, 0
+	if m.status != nil {
+		staged = len(m.status.Staged)
+		unstaged = len(m.status.Unstaged)
+	}
+	return components.RenderStatusBar(branch, staged, unstaged, m.loading, m.errMsg, m.width)
 }
+
+// ── Branch picker ──
 
 func (m Model) renderBranchPicker() string {
 	var lines []string
-	lines = append(lines, styles.TitleStyle.Render("Switch Branch"))
+	lines = append(lines, styles.TitleTextStyle.Render(" Switch Branch"))
 	lines = append(lines, "")
 
 	for i, b := range m.branches {
-		current := ""
+		cur := ""
 		if m.status != nil && b == m.status.Branch.Name {
-			current = " (current)"
+			cur = styles.HelpDescStyle.Render(" (current)")
 		}
-
 		if i == m.branchCursor {
-			line := "> " + b + current
-			line = padToWidth(line, m.width-8)
+			marker := styles.BranchStyle.Render(">")
+			line := " " + marker + " " + styles.FileNameStyle.Render(b) + cur
+			line = padW(line, m.width-8)
 			lines = append(lines, styles.SelectedStyle.Render(line))
 		} else {
-			lines = append(lines, "  "+b+current)
+			lines = append(lines, "   "+styles.FilePathStyle.Render(b)+cur)
 		}
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, styles.HelpDescStyle.Render("  Enter: checkout │ Esc: cancel"))
+	lines = append(lines, styles.HelpDescStyle.Render("  enter:checkout  esc:cancel"))
+
+	content := strings.Join(lines, "\n")
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(styles.BorderFocus).
+		Width(m.width - 4).
+		Padding(1, 2)
+
+	return lipgloss.Place(m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		box.Render(content))
+}
+
+// ── Settings panel ──
+
+func (m Model) renderSettings() string {
+	var lines []string
+
+	lines = append(lines, styles.TitleTextStyle.Render("  Settings"))
+	lines = append(lines, "")
+
+	// Current config
+	lines = append(lines, styles.SectionHeaderStyle.Render("  Ollama Configuration"))
+	lines = append(lines, "")
+	lines = append(lines,
+		styles.HelpDescStyle.Render("  Host:  ")+styles.FileNameStyle.Render(m.ollamaCfg.Host))
+	lines = append(lines,
+		styles.HelpDescStyle.Render("  Model: ")+styles.BranchStyle.Render(m.ollamaCfg.Model))
+	lines = append(lines, "")
+
+	// Separator
+	lines = append(lines, styles.SectionSepStyle.Render(strings.Repeat("─", m.width-6)))
+	lines = append(lines, "")
+
+	// Model picker
+	lines = append(lines, styles.SectionHeaderStyle.Render("  Select Model"))
+	lines = append(lines, "")
+
+	if !m.modelListLoaded {
+		lines = append(lines, styles.SpinnerStyle.Render("  "+m.spinner.View()+" Loading models from Ollama..."))
+	} else if len(m.availableModels) == 0 {
+		lines = append(lines, styles.ErrorStyle.Render("  No models found. Is Ollama running?"))
+		lines = append(lines, styles.HelpDescStyle.Render("  r: retry"))
+	} else {
+		for i, model := range m.availableModels {
+			current := ""
+			if model == m.ollamaCfg.Model {
+				current = styles.SuccessStyle.Render(" (active)")
+			}
+
+			if i == m.settingsCursor {
+				marker := styles.BranchStyle.Render(">")
+				line := "  " + marker + " " + styles.FileNameStyle.Render(model) + current
+				line = padW(line, m.width-6)
+				lines = append(lines, styles.SelectedStyle.Render(line))
+			} else {
+				lines = append(lines, "    "+styles.FilePathStyle.Render(model)+current)
+			}
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, styles.SectionSepStyle.Render(strings.Repeat("─", m.width-6)))
+	lines = append(lines, "")
+
+	// Environment hints
+	lines = append(lines, styles.SectionHeaderStyle.Render("  Environment Variables"))
+	lines = append(lines, "")
+	lines = append(lines, styles.HelpDescStyle.Render("  OLLAMA_HOST  — Ollama server URL"))
+	lines = append(lines, styles.HelpDescStyle.Render("  OLLAMA_MODEL — Default model name"))
+
+	lines = append(lines, "")
+	lines = append(lines, styles.HelpDescStyle.Render("  enter:select  r:refresh  esc:close"))
 
 	content := strings.Join(lines, "\n")
 
@@ -292,11 +557,46 @@ func (m Model) renderBranchPicker() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(styles.Border).
 		Width(m.width - 4).
-		Padding(1, 2)
+		Padding(1, 1)
 
 	return lipgloss.Place(m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
 		box.Render(content))
+}
+
+// ── Context helpers ──
+
+func (m Model) helpContext() components.HelpContext {
+	ctx := components.HelpContext{Generating: m.generating}
+	switch m.mode {
+	case ModeCommit:
+		ctx.Mode = "commit"
+	case ModeDiff:
+		ctx.Mode = "diff"
+	case ModeBranch:
+		ctx.Mode = "branch"
+	case ModeHelp:
+		ctx.Mode = "help"
+	case ModeSettings:
+		ctx.Mode = "settings"
+	default:
+		ctx.Mode = "normal"
+	}
+	switch m.focus {
+	case SectionStaged:
+		ctx.Section = "staged"
+	case SectionUnstaged:
+		ctx.Section = "unstaged"
+	case SectionStashes:
+		ctx.Section = "stashes"
+	case SectionGraph:
+		ctx.Section = "graph"
+	}
+	if m.status != nil {
+		ctx.HasStaged = len(m.status.Staged) > 0
+		ctx.HasChanges = len(m.status.Unstaged) > 0
+	}
+	return ctx
 }
 
 func (m Model) getBranch() git.BranchInfo {
@@ -306,60 +606,53 @@ func (m Model) getBranch() git.BranchInfo {
 	return git.BranchInfo{Name: "unknown"}
 }
 
-func (m Model) isRowHovered(row int) bool {
-	return m.hoverRow == row
-}
+// ── Rendering primitives ──
 
-// ── Rendering helpers ──
-
-func renderSectionHeaderWithActions(title string, count int, collapsed bool, width int, actionIcons string, focused bool) string {
-	arrow := "▼"
+func renderSectionHeader(title string, count int, collapsed bool, width int, actions string, focused bool) string {
+	arrow := "▾"
 	if collapsed {
-		arrow = "▶"
+		arrow = "▸"
 	}
+	arrow = styles.HelpDescStyle.Render(arrow)
 
-	countStr := styles.SectionCountStyle.Render(fmt.Sprintf("(%d)", count))
+	countStr := styles.SectionCountStyle.Render(fmt.Sprintf("%d", count))
 	header := fmt.Sprintf(" %s %s %s", arrow, styles.SectionHeaderStyle.Render(title), countStr)
 
-	if actionIcons != "" {
-		iconsWidth := lipgloss.Width(actionIcons)
-		headerWidth := lipgloss.Width(header)
-		gap := width - headerWidth - iconsWidth - 1
+	if actions != "" {
+		aw := lipgloss.Width(actions)
+		hw := lipgloss.Width(header)
+		gap := width - hw - aw - 2
 		if gap > 0 {
-			header += strings.Repeat(" ", gap) + actionIcons
+			header += strings.Repeat(" ", gap) + actions + " "
 		}
 	}
 
+	header = padW(header, width)
 	if focused {
-		header = padToWidth(header, width)
 		header = styles.SelectedStyle.Render(header)
 	}
-
 	return header
 }
 
-func renderFileLineWithActions(entry git.StatusEntry, width int, selected bool, hovered bool, isStaged bool) string {
-	statusStr := entry.Status.String()
-	statusStyled := styles.StatusStyle(entry.Status).Render(statusStr)
+func renderFileLine(entry git.StatusEntry, width int, selected bool, hovered bool, isStaged bool) string {
+	// Status badge
+	st := entry.Status.String()
+	badge := styles.StatusStyle(entry.Status).Render(st)
 
-	// File path display
-	display := entry.Path
-	actionWidth := 10 // reserve space for action icons
-	maxPath := width - 6 - actionWidth
-	if maxPath < 10 {
-		maxPath = 10
+	// Split into filename (bold) + directory (dim) like VS Code
+	name := filepath.Base(entry.Path)
+	dir := filepath.Dir(entry.Path)
+	if dir == "." {
+		dir = ""
 	}
 
-	if width < 50 {
-		display = filepath.Base(entry.Path)
-	}
-	if len(display) > maxPath {
-		display = "..." + display[len(display)-maxPath+3:]
+	nameStyled := styles.FileNameStyle.Render(name)
+	dirStyled := ""
+	if dir != "" {
+		dirStyled = " " + styles.FileDirStyle.Render(dir)
 	}
 
-	line := fmt.Sprintf("  %s  %s", statusStyled, styles.FilePathStyle.Render(display))
-
-	// Action icons on hover or selection (VS Code shows on hover)
+	// Action icons on hover/select
 	actions := ""
 	if hovered || selected {
 		if isStaged {
@@ -369,30 +662,53 @@ func renderFileLineWithActions(entry git.StatusEntry, width int, selected bool, 
 		}
 	}
 
-	// Pad and place actions at right edge
-	lineWidth := lipgloss.Width(line)
-	actionsWidth := lipgloss.Width(actions)
-	gap := width - lineWidth - actionsWidth - 1
-	if gap > 0 {
-		line += strings.Repeat(" ", gap) + actions
-	} else if gap <= 0 && actions != "" {
-		// Truncate path more to fit actions
-		line = line[:max(0, len(line)+gap-1)] + " " + actions
+	// Layout: "  M  filename  dir                      + ↺"
+	left := fmt.Sprintf("  %s  %s%s", badge, nameStyled, dirStyled)
+	lw := lipgloss.Width(left)
+	aw := lipgloss.Width(actions)
+
+	// Truncate if needed
+	maxLeft := width - aw - 2
+	if lw > maxLeft && maxLeft > 10 {
+		// Re-render with truncated dir
+		maxDir := maxLeft - lipgloss.Width(fmt.Sprintf("  %s  %s ", badge, nameStyled))
+		if maxDir > 3 && dir != "" {
+			if len(dir) > maxDir {
+				dir = dir[:maxDir-2] + ".."
+			}
+			dirStyled = " " + styles.FileDirStyle.Render(dir)
+		} else {
+			dirStyled = ""
+		}
+		left = fmt.Sprintf("  %s  %s%s", badge, nameStyled, dirStyled)
+		lw = lipgloss.Width(left)
 	}
 
-	// Full-width pad for background
-	line = padToWidth(line, width)
+	gap := width - lw - aw - 1
+	if gap < 1 {
+		gap = 1
+	}
+
+	line := left + strings.Repeat(" ", gap) + actions
+	line = padW(line, width)
 
 	if selected {
-		line = styles.SelectedStyle.Render(line)
+		return styles.SelectedStyle.Render(line)
 	} else if hovered {
-		line = styles.HoverStyle.Render(line)
+		return styles.HoverStyle.Render(line)
 	}
-
 	return line
 }
 
-func padToWidth(s string, width int) string {
+func thinSep(width int) string {
+	return styles.SectionSepStyle.Render(strings.Repeat("─", width))
+}
+
+func dim(s string, _ int) string {
+	return styles.HelpDescStyle.Render(s)
+}
+
+func padW(s string, width int) string {
 	w := lipgloss.Width(s)
 	if w < width {
 		s += strings.Repeat(" ", width-w)
