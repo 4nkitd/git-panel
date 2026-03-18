@@ -125,20 +125,19 @@ func (t TextInput) View(width int) string {
 		return string(visible)
 	}
 
-	// Render with cursor block
+	// Render with bar cursor │
 	var out strings.Builder
 	for i, r := range visible {
 		if i == cursorPos {
-			out.WriteString("\033[7m") // reverse video (block cursor)
+			out.WriteString("\033[36m│\033[0m") // cyan bar cursor
 			out.WriteRune(r)
-			out.WriteString("\033[0m")
 		} else {
 			out.WriteRune(r)
 		}
 	}
-	// If cursor is at the end, show cursor on a space
+	// If cursor is at the end, show bar after last character
 	if cursorPos >= len(visible) {
-		out.WriteString("\033[7m \033[0m")
+		out.WriteString("\033[36m│\033[0m")
 	}
 
 	return out.String()
