@@ -125,19 +125,20 @@ func (t TextInput) View(width int) string {
 		return string(visible)
 	}
 
-	// Render with bar cursor │
+	// Render with underline cursor _
 	var out strings.Builder
 	for i, r := range visible {
 		if i == cursorPos {
-			out.WriteString("\033[36m│\033[0m") // cyan bar cursor
+			out.WriteString("\033[4;36m") // underline + cyan
 			out.WriteRune(r)
+			out.WriteString("\033[0m")
 		} else {
 			out.WriteRune(r)
 		}
 	}
-	// If cursor is at the end, show bar after last character
+	// If cursor is at the end, show underline on a space
 	if cursorPos >= len(visible) {
-		out.WriteString("\033[36m│\033[0m")
+		out.WriteString("\033[36m_\033[0m")
 	}
 
 	return out.String()

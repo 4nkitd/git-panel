@@ -223,7 +223,8 @@ func (m Model) renderTitle() string {
 // ── Commit area ──
 
 func (m Model) renderCommitArea() string {
-	inner := m.width - 2 // border only, margin via MarginLeft
+	// margin(1) + border(2) + padding(2) = 5
+	contentWidth := m.width - 5
 
 	if m.mode == ModeCommit {
 		var s strings.Builder
@@ -239,45 +240,35 @@ func (m Model) renderCommitArea() string {
 		if m.generating {
 			inputContent = styles.HelpDescStyle.Render("✦ Generating commit message...")
 		} else {
-			inputContent = m.commitInput.View(inner - 2) // -2 for padding
+			inputContent = m.commitInput.View(contentWidth)
 		}
 
 		border := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(borderColor).
-			Width(inner).
+			Width(contentWidth).
 			Padding(0, 1).
 			MarginLeft(1)
 		s.WriteString(border.Render(inputContent))
 		s.WriteString("\n")
 
-		// Full-width commit button
+		// Full-width commit button — total = margin(1) + contentWidth + border(2) + padding(2)
 		btnFg := styles.BrightWhite
 		btnBg := styles.BgButton
+		btnLabel := "✓ Commit"
 		if m.generating {
 			btnFg = styles.DimWhite
 			btnBg = lipgloss.Color("#1a3a5c")
+			btnLabel = m.spinner.AIView() + " Generating..."
 		}
 		s.WriteString(lipgloss.NewStyle().
 			Foreground(btnFg).
 			Background(btnBg).
 			Bold(true).
-			Width(inner+2).
+			Width(contentWidth+4).
 			Align(lipgloss.Center).
 			MarginLeft(1).
-			Render("✓ Commit"))
-		s.WriteString("\n")
-
-		// Action row: Generate + Amend + hint
-		var parts []string
-		if m.generating {
-			parts = append(parts, styles.SpinnerStyle.Render(m.spinner.AIView()+" Generating..."))
-		} else {
-			parts = append(parts, styles.GenerateButtonStyle.Render("✦ Generate"))
-		}
-		parts = append(parts, styles.CommitSecondaryStyle.Render("Amend"))
-		parts = append(parts, styles.HelpDescStyle.Render("esc:cancel"))
-		s.WriteString(" " + strings.Join(parts, "  "))
+			Render(btnLabel))
 
 		return s.String()
 	}
@@ -287,7 +278,7 @@ func (m Model) renderCommitArea() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(styles.Border).
 		Foreground(styles.Subtle).
-		Width(inner).
+		Width(contentWidth).
 		Padding(0, 1).
 		MarginLeft(1).
 		Render("Commit message  (c: type  g: AI generate)")
@@ -295,7 +286,7 @@ func (m Model) renderCommitArea() string {
 	btn := lipgloss.NewStyle().
 		Foreground(styles.DimWhite).
 		Background(lipgloss.Color("#1a3a5c")).
-		Width(inner+2).
+		Width(contentWidth+4).
 		Align(lipgloss.Center).
 		MarginLeft(1).
 		Render("✓ Commit")
