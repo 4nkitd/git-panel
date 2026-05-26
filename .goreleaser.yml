@@ -1,7 +1,7 @@
 version: 2
 
 builds:
-  - main: ./cmd/zedgit/
+  - main: ./cmd/git-panel/
     binary: git-panel
     ldflags:
       - -s -w -X main.version={{.Version}}
@@ -13,7 +13,8 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 changelog:

@@ -6,10 +6,10 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 .PHONY: build install clean vet
 
 build:
-	go build -ldflags '$(LDFLAGS)' -o $(BINARY) ./cmd/zedgit/
+	go build -ldflags '$(LDFLAGS)' -o $(BINARY) ./cmd/git-panel/
 
 install:
-	go install -ldflags '$(LDFLAGS)' ./cmd/zedgit/
+	go install -ldflags '$(LDFLAGS)' ./cmd/git-panel/
 
 vet:
 	go vet ./...

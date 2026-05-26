@@ -51,7 +51,7 @@ A terminal UI for Git — stage, commit, diff, and browse history without leavin
 ### From source
 
 ```bash
-go install github.com/4nkitd/git-panel/cmd/zedgit@latest
+go install github.com/4nkitd/git-panel/cmd/git-panel@latest
 ```
 
 ### From release binaries
