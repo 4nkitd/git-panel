@@ -1,5 +1,5 @@
 # Binaries
-git-panel
+/git-panel
 *.exe
 *.exe~
 *.dll
@@ -28,3 +28,4 @@ Thumbs.db
 
 # dist (goreleaser)
 dist/
+PLAN.md untracked
