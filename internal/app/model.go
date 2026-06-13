@@ -11,6 +11,20 @@ import (
 	"github.com/4nkitd/git-panel/internal/git"
 )
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 // Ensure context import is used
 var _ = context.Background
 
@@ -58,6 +72,7 @@ type Model struct {
 
 	// Commit input
 	commitInput TextInput
+	amending    bool // true when amending last commit
 
 	// Diff view
 	currentDiff  *git.DiffResult
@@ -65,8 +80,10 @@ type Model struct {
 	diffMaxLines int
 
 	// Branch picker
-	branches     []string
-	branchCursor int
+	branches           []string
+	remoteBranches     []string
+	branchCursor       int
+	showRemoteBranches bool
 
 	// Commit graph
 	logResult       *git.LogResult
@@ -101,7 +118,7 @@ type Model struct {
 
 // Spinner holds animated spinner state.
 type Spinner struct {
-	frame int
+	frame  int
 	active bool
 }
 
@@ -131,7 +148,10 @@ type statusMsg struct{ status *git.RepoStatus }
 type errMsg struct{ err error }
 type successMsgType struct{ msg string }
 type diffMsg struct{ diff *git.DiffResult }
-type branchesMsg struct{ branches []string }
+type branchesMsg struct {
+	branches []string
+	remotes  []string
+}
 type logMsg struct{ log *git.LogResult }
 type commitFilesMsg struct {
 	index int
@@ -246,11 +266,14 @@ func (m Model) loadDiff(path string, staged bool) tea.Cmd {
 
 func (m Model) loadBranches() tea.Cmd {
 	return func() tea.Msg {
-		branches, err := m.repo.Branches()
+		local, remote, err := m.repo.AllBranches()
 		if err != nil {
 			return errMsg{err}
 		}
-		return branchesMsg{branches}
+		return branchesMsg{
+			branches: local,
+			remotes:  remote,
+		}
 	}
 }
 

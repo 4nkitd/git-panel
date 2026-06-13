@@ -2,6 +2,8 @@ package app
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"os"
+	"os/exec"
 
 	"github.com/4nkitd/git-panel/internal/git"
 )
@@ -42,6 +44,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case branchesMsg:
 		m.branches = msg.branches
+		m.remoteBranches = msg.remotes
 		m.branchCursor = 0
 		m.mode = ModeBranch
 		return m, nil
@@ -381,6 +384,95 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "ctrl+d":
+		if m.focus == SectionGraph {
+			if m.logResult != nil {
+				m.graphCursor = min(m.graphCursor+10, len(m.logResult.Commits)-1)
+			}
+		} else {
+			m.cursor += 5
+			m.clampCursor()
+		}
+		return m, nil
+
+	case "ctrl+u":
+		if m.focus == SectionGraph {
+			m.graphCursor = max(m.graphCursor-10, 0)
+		} else {
+			m.cursor -= 5
+			m.clampCursor()
+		}
+		return m, nil
+
+	case "ctrl+f":
+		if m.focus == SectionGraph {
+			if m.logResult != nil {
+				m.graphCursor = min(m.graphCursor+m.graphMaxVisible/2, len(m.logResult.Commits)-1)
+			}
+		} else {
+			m.cursor += 3
+			m.clampCursor()
+		}
+		return m, nil
+
+	case "ctrl+b":
+		if m.focus == SectionGraph {
+			m.graphCursor = max(m.graphCursor-m.graphMaxVisible/2, 0)
+		} else {
+			m.cursor -= 3
+			m.clampCursor()
+		}
+		return m, nil
+
+	case "home":
+		if m.focus == SectionGraph {
+			m.graphCursor = 0
+		} else {
+			m.cursor = 0
+		}
+		return m, nil
+
+	case "end":
+		if m.focus == SectionGraph {
+			if m.logResult != nil {
+				m.graphCursor = len(m.logResult.Commits) - 1
+			}
+		} else {
+			entries := m.focusedEntries()
+			if entries != nil {
+				m.cursor = len(entries) - 1
+			}
+		}
+		return m, nil
+
+	case "pageup":
+		if m.focus == SectionGraph {
+			if m.logResult != nil {
+				m.graphCursor = max(m.graphCursor-m.graphMaxVisible, 0)
+			}
+		} else {
+			entries := m.focusedEntries()
+			if entries != nil {
+				m.cursor = max(m.cursor-m.graphMaxVisible/2, 0)
+			}
+			m.clampCursor()
+		}
+		return m, nil
+
+	case "pagedown":
+		if m.focus == SectionGraph {
+			if m.logResult != nil {
+				m.graphCursor = min(m.graphCursor+m.graphMaxVisible, len(m.logResult.Commits)-1)
+			}
+		} else {
+			entries := m.focusedEntries()
+			if entries != nil {
+				m.cursor = min(m.cursor+m.graphMaxVisible/2, len(entries)-1)
+			}
+			m.clampCursor()
+		}
+		return m, nil
+
 	case "tab":
 		m.cycleSection(true)
 		return m, nil
@@ -408,11 +500,32 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.repo.UnstageAll()
 		}, "Unstaged all changes"))
 
+	// Discard changes
+	case "x":
+		return m.handleDiscard()
+
+	case "X":
+		spin := m.startLoading("Discarding all changes...")
+		return m, tea.Batch(spin, m.doGitOp(func() error {
+			return m.repo.DiscardAll()
+		}, "Discarded all changes"))
+
 	// Commit
 	case "c":
 		m.mode = ModeCommit
 		m.commitInput.Focus()
 		return m, nil
+
+	case "C":
+		lastMsg, err := m.repo.GetLastCommitMessage()
+		if err == nil {
+			m.commitInput.SetValue(lastMsg)
+		}
+		m.mode = ModeCommit
+		m.amending = true
+		m.commitInput.Focus()
+		m.successMsg = "Amend mode - editing last commit"
+		return m, m.clearMessage()
 
 	// Generate commit message with Ollama AI
 	case "g":
@@ -430,6 +543,9 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Diff
 	case "d":
 		return m.handleShowDiff()
+
+	case "e":
+		return m.handleOpenEditor()
 
 	// Branch
 	case "b":
@@ -523,10 +639,18 @@ func (m Model) handleCommitKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = ModeNormal
 		m.commitInput.Blur()
 		m.commitInput.Reset()
-		spin := m.startLoading("Committing...")
-		return m, tea.Batch(spin, m.doGitOp(func() error {
-			return m.repo.Commit(message)
-		}, "Committed: "+truncateMsg(message, 30)))
+		var opLabel string
+		var opFunc func() error
+		if m.amending {
+			opLabel = "Amending..."
+			opFunc = func() error { return m.repo.CommitAmend(message) }
+			m.amending = false
+		} else {
+			opLabel = "Committing..."
+			opFunc = func() error { return m.repo.Commit(message) }
+		}
+		spin := m.startLoading(opLabel)
+		return m, tea.Batch(spin, m.doGitOp(opFunc, "Committed: "+truncateMsg(message, 30)))
 
 	default:
 		// Pass all other keys to the text input
@@ -560,8 +684,13 @@ func (m Model) handleBranchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "b":
 		m.mode = ModeNormal
 		return m, nil
+	case "r":
+		m.showRemoteBranches = !m.showRemoteBranches
+		m.branchCursor = 0
+		return m, nil
 	case "j", "down":
-		if m.branchCursor < len(m.branches)-1 {
+		branches := m.getCurrentBranches()
+		if m.branchCursor < len(branches)-1 {
 			m.branchCursor++
 		}
 		return m, nil
@@ -571,10 +700,10 @@ func (m Model) handleBranchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "enter":
-		if m.branchCursor < len(m.branches) {
-			branch := m.branches[m.branchCursor]
+		branches := m.getCurrentBranches()
+		if m.branchCursor < len(branches) {
+			branch := branches[m.branchCursor]
 			m.mode = ModeNormal
-			m.loading = true
 			return m, m.doGitOp(func() error {
 				return m.repo.CheckoutBranch(branch)
 			}, "Switched to "+branch)
@@ -582,6 +711,36 @@ func (m Model) handleBranchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+func (m Model) getCurrentBranches() []string {
+	if m.showRemoteBranches {
+		return m.remoteBranches
+	}
+	return m.branches
+}
+
+func (m Model) handleOpenEditor() (Model, tea.Cmd) {
+	entries := m.focusedEntries()
+	if m.cursor >= len(entries) || len(entries) == 0 {
+		return m, nil
+	}
+
+	entry := entries[m.cursor]
+	filePath := m.repo.Path + "/" + entry.Path
+
+	return m, func() tea.Msg {
+		editor := "vim"
+		if ed := os.Getenv("EDITOR"); ed != "" {
+			editor = ed
+		}
+
+		cmd := exec.Command(editor, filePath)
+		cmd.Dir = m.repo.Path
+		_ = cmd.Start()
+
+		return successMsgType{msg: "Opening " + entry.Path + " with " + editor}
+	}
 }
 
 func (m Model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -664,6 +823,20 @@ func (m Model) handleShowDiff() (Model, tea.Cmd) {
 	entry := entries[m.cursor]
 	staged := m.focus == SectionStaged
 	return m, m.loadDiff(entry.Path, staged)
+}
+
+func (m Model) handleDiscard() (Model, tea.Cmd) {
+	entries := m.focusedEntries()
+	if m.cursor >= len(entries) || len(entries) == 0 {
+		return m, nil
+	}
+	entry := entries[m.cursor]
+
+	isUntracked := entry.Status == git.StatusUntracked
+	spin := m.startLoading("Discarding...")
+	return m, tea.Batch(spin, m.doGitOp(func() error {
+		return m.repo.Discard(entry.Path, isUntracked)
+	}, "Discarded "+entry.Path))
 }
 
 func (m Model) toggleCommitExpand(idx int) (Model, tea.Cmd) {

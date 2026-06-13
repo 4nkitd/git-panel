@@ -1,0 +1,41 @@
+<div class="app-container">
+  <app-header
+    [loading]="loading"
+    [currentLat]="currentLat"
+    [currentLng]="currentLng"
+    (search)="onSearch($event)"
+  ></app-header>
+
+  <div class="main-area">
+    <app-sidebar
+      [layers]="layers"
+      [satelliteLayers]="satelliteLayers"
+      (layerToggled)="onLayerToggled($event)"
+      (satelliteToggled)="onSatelliteToggled()"
+      (categoryChanged)="onCategoryChanged($event)"
+      (locationSelected)="onLocationSelected($event)"
+    ></app-sidebar>
+
+    <div class="map-container">
+      <app-map
+        [flights]="flights"
+        [maritimeData]="maritimeData"
+        [satelliteLayers]="satelliteLayers"
+        [weather]="weather"
+        [showFlights]="isLayerEnabled('flights')"
+        [showMaritime]="isLayerEnabled('maritime')"
+        [showWeather]="isLayerEnabled('weather')"
+        (boundsChanged)="onBoundsChanged($event)"
+        (mapClicked)="onMapClicked($event)"
+        (positionChanged)="onPositionChanged($event)"
+      ></app-map>
+
+      <app-data-panel
+        [weather]="weather"
+        [flights]="flights"
+        [maritimeData]="maritimeData"
+        [news]="news"
+      ></app-data-panel>
+    </div>
+  </div>
+</div>

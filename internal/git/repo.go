@@ -13,7 +13,7 @@ import (
 type FileStatus int
 
 const (
-	StatusModified  FileStatus = iota
+	StatusModified FileStatus = iota
 	StatusAdded
 	StatusDeleted
 	StatusRenamed
@@ -48,19 +48,19 @@ func (s FileStatus) String() string {
 
 // StatusEntry represents a single file's status.
 type StatusEntry struct {
-	Path      string
-	Status    FileStatus
-	OldPath   string // for renames
-	IsStaged  bool
+	Path     string
+	Status   FileStatus
+	OldPath  string // for renames
+	IsStaged bool
 }
 
 // BranchInfo holds information about the current branch.
 type BranchInfo struct {
-	Name     string
+	Name       string
 	IsDetached bool
-	Upstream string
-	Ahead    int
-	Behind   int
+	Upstream   string
+	Ahead      int
+	Behind     int
 }
 
 // StashEntry represents a single stash.
@@ -71,12 +71,12 @@ type StashEntry struct {
 
 // RepoStatus holds the full status of a repository.
 type RepoStatus struct {
-	Branch       BranchInfo
-	Staged       []StatusEntry
-	Unstaged     []StatusEntry
-	Stashes      []StashEntry
-	MergeHead    bool
-	RebaseHead   bool
+	Branch     BranchInfo
+	Staged     []StatusEntry
+	Unstaged   []StatusEntry
+	Stashes    []StashEntry
+	MergeHead  bool
+	RebaseHead bool
 }
 
 // DiffLine represents a single line in a diff.
@@ -253,6 +253,23 @@ func (r *Repo) UnstageAll() error {
 	return err
 }
 
+// Discard discards local changes to a file (checkout from HEAD).
+// For untracked files, this removes them from the working directory.
+func (r *Repo) Discard(path string, isUntracked bool) error {
+	if isUntracked {
+		_, err := runGit(r.Path, "clean", "-f", "--", path)
+		return err
+	}
+	_, err := runGit(r.Path, "checkout", "HEAD", "--", path)
+	return err
+}
+
+// DiscardAll discards all local changes.
+func (r *Repo) DiscardAll() error {
+	_, err := runGit(r.Path, "checkout", "--", ".")
+	return err
+}
+
 // Commit creates a new commit with the given message.
 func (r *Repo) Commit(message string) error {
 	_, err := runGit(r.Path, "commit", "-m", message)
@@ -301,6 +318,35 @@ func (r *Repo) Branches() ([]string, error) {
 		}
 	}
 	return branches, nil
+}
+
+// RemoteBranches returns a list of remote branch names.
+func (r *Repo) RemoteBranches() ([]string, error) {
+	out, err := runGit(r.Path, "branch", "-r", "--format=%(refname:short)")
+	if err != nil {
+		return nil, err
+	}
+
+	var branches []string
+	for _, b := range strings.Split(strings.TrimSpace(out), "\n") {
+		if b != "" {
+			branches = append(branches, b)
+		}
+	}
+	return branches, nil
+}
+
+// AllBranches returns both local and remote branches.
+func (r *Repo) AllBranches() (local []string, remote []string, err error) {
+	local, err = r.Branches()
+	if err != nil {
+		return nil, nil, err
+	}
+	remote, err = r.RemoteBranches()
+	if err != nil {
+		return nil, nil, err
+	}
+	return local, remote, nil
 }
 
 // CheckoutBranch switches to the given branch.

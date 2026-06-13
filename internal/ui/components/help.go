@@ -18,8 +18,12 @@ var Bindings = []KeyBinding{
 	{"Enter", "Stage/unstage file"},
 	{"a", "Stage all"},
 	{"A", "Unstage all"},
+	{"x", "Discard file changes"},
+	{"X", "Discard all changes"},
 	{"d", "Show diff"},
+	{"e", "Open file in editor"},
 	{"c", "Start commit"},
+	{"C", "Amend last commit"},
 	{"g", "Generate commit msg (Ollama AI)"},
 	{"Ctrl+Enter", "Confirm commit"},
 	{"Esc", "Cancel / close"},
@@ -114,9 +118,9 @@ func RenderHelpBar(width int, ctx HelpContext) string {
 
 		switch ctx.Section {
 		case "staged":
-			hints = append(hints, "Enter:unstage", "A:unstage all", "d:diff")
+			hints = append(hints, "Enter:unstage", "A:unstage all", "d:diff", "x:discard", "e:edit")
 		case "unstaged":
-			hints = append(hints, "Enter:stage", "a:stage all", "d:diff")
+			hints = append(hints, "Enter:stage", "a:stage all", "d:diff", "x:discard", "e:edit")
 		case "stashes":
 			hints = append(hints, "s:stash", "S:pop")
 		case "graph":
@@ -125,7 +129,7 @@ func RenderHelpBar(width int, ctx HelpContext) string {
 
 		// Common actions available in normal mode
 		if ctx.HasStaged {
-			hints = append(hints, "c:commit", "g:AI gen")
+			hints = append(hints, "c:commit", "C:amend", "g:AI gen")
 		} else if ctx.HasChanges {
 			hints = append(hints, "a:stage all", "g:AI gen")
 		}

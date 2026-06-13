@@ -265,7 +265,7 @@ func (m Model) renderCommitArea() string {
 			Foreground(btnFg).
 			Background(btnBg).
 			Bold(true).
-			Width(contentWidth+4).
+			Width(contentWidth + 4).
 			Align(lipgloss.Center).
 			MarginLeft(1).
 			Render(btnLabel))
@@ -286,7 +286,7 @@ func (m Model) renderCommitArea() string {
 	btn := lipgloss.NewStyle().
 		Foreground(styles.DimWhite).
 		Background(lipgloss.Color("#1a3a5c")).
-		Width(contentWidth+4).
+		Width(contentWidth + 4).
 		Align(lipgloss.Center).
 		MarginLeft(1).
 		Render("✓ Commit")
@@ -471,10 +471,19 @@ func (m Model) renderStatusBar() string {
 
 func (m Model) renderBranchPicker() string {
 	var lines []string
-	lines = append(lines, styles.TitleTextStyle.Render(" Switch Branch"))
+
+	title := " Switch Branch"
+	if m.showRemoteBranches {
+		title += " (Remote)"
+	} else {
+		title += " (Local)"
+	}
+	lines = append(lines, styles.TitleTextStyle.Render(title))
 	lines = append(lines, "")
 
-	for i, b := range m.branches {
+	branches := m.getCurrentBranches()
+
+	for i, b := range branches {
 		cur := ""
 		if m.status != nil && b == m.status.Branch.Name {
 			cur = styles.HelpDescStyle.Render(" (current)")
@@ -490,13 +499,13 @@ func (m Model) renderBranchPicker() string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, styles.HelpDescStyle.Render("  enter:checkout  esc:cancel"))
+	lines = append(lines, styles.HelpDescStyle.Render("  r:toggle local/remote  enter:checkout  esc:cancel"))
 
 	content := strings.Join(lines, "\n")
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(styles.BorderFocus).
-		Width(m.width - 4).
+		Width(m.width-4).
 		Padding(1, 2)
 
 	return lipgloss.Place(m.width, m.height,
@@ -570,7 +579,7 @@ func (m Model) renderSettings() string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(styles.Border).
-		Width(m.width - 4).
+		Width(m.width-4).
 		Padding(1, 1)
 
 	return lipgloss.Place(m.width, m.height,
